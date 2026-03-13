@@ -1,0 +1,188 @@
+import numpy as np
+import pandas as pd
+from scipy.stats import poisson
+import random
+
+class ASIDAv5:
+
+    def __init__(self):
+
+        self.bankroll = 1000
+        self.kelly_fraction = 0.5
+        self.simulations = 10000
+
+    # ---------- TEAM ELO MODEL ----------
+
+    def elo_probability(self, elo_home, elo_away):
+
+        prob_home = 1 / (1 + 10 ** ((elo_away - elo_home) / 400))
+        prob_away = 1 - prob_home
+
+        return prob_home, prob_away
+
+
+    # ---------- EXPECTED GOALS MODEL ----------
+
+    def expected_goals(self, home_attack, home_defense,
+                       away_attack, away_defense):
+
+        league_avg = 1.35
+
+        home_xg = league_avg * home_attack * away_defense
+        away_xg = league_avg * away_attack * home_defense
+
+        return home_xg, away_xg
+
+
+    # ---------- MONTE CARLO MATCH SIMULATION ----------
+
+    def monte_carlo(self, home_xg, away_xg):
+
+        home_wins = 0
+        draws = 0
+        away_wins = 0
+        over25 = 0
+
+        for _ in range(self.simulations):
+
+            home_goals = np.random.poisson(home_xg)
+            away_goals = np.random.poisson(away_xg)
+
+            if home_goals > away_goals:
+                home_wins += 1
+            elif home_goals < away_goals:
+                away_wins += 1
+            else:
+                draws += 1
+
+            if home_goals + away_goals > 2:
+                over25 += 1
+
+        return (
+            home_wins / self.simulations,
+            draws / self.simulations,
+            away_wins / self.simulations,
+            over25 / self.simulations
+        )
+
+
+    # ---------- VALUE BET DETECTION ----------
+
+    def value_edge(self, probability, odds):
+
+        implied = 1 / odds
+        return probability - implied
+
+
+    # ---------- KELLY BET SIZING ----------
+
+    def kelly(self, prob, odds):
+
+        b = odds - 1
+        q = 1 - prob
+
+        kelly = ((b * prob) - q) / b
+
+        if kelly <= 0:
+            return 0
+
+        return self.bankroll * kelly * self.kelly_fraction
+
+
+    # ---------- MAIN PREDICTION FUNCTION ----------
+
+    def predict(self,
+                home_team,
+                away_team,
+                elo_home,
+                elo_away,
+                home_attack,
+                home_defense,
+                away_attack,
+                away_defense,
+                odds_home,
+                odds_draw,
+                odds_away):
+
+        # Elo probability
+        elo_home_prob, elo_away_prob = self.elo_probability(elo_home, elo_away)
+
+        # Expected goals
+        home_xg, away_xg = self.expected_goals(
+            home_attack,
+            home_defense,
+            away_attack,
+            away_defense
+        )
+
+        # Monte Carlo simulation
+        home_win, draw, away_win, over25 = self.monte_carlo(home_xg, away_xg)
+
+        # Value edges
+        edge_home = self.value_edge(home_win, odds_home)
+        edge_draw = self.value_edge(draw, odds_draw)
+        edge_away = self.value_edge(away_win, odds_away)
+
+        # Kelly stakes
+        stake_home = self.kelly(home_win, odds_home)
+        stake_draw = self.kelly(draw, odds_draw)
+        stake_away = self.kelly(away_win, odds_away)
+
+        result = {
+
+            "match": f"{home_team} vs {away_team}",
+
+            "expected_goals":{
+                "home_xg": round(home_xg,2),
+                "away_xg": round(away_xg,2)
+            },
+
+            "probabilities":{
+                "home_win": round(home_win,3),
+                "draw": round(draw,3),
+                "away_win": round(away_win,3)
+            },
+
+            "over_2_5_probability": round(over25,3),
+
+            "value_edges":{
+                "home": round(edge_home,3),
+                "draw": round(edge_draw,3),
+                "away": round(edge_away,3)
+            },
+
+            "recommended_stake":{
+                "home": round(stake_home,2),
+                "draw": round(stake_draw,2),
+                "away": round(stake_away,2)
+            }
+
+        }
+
+        return result
+
+
+# ---------- RUN EXAMPLE ----------
+
+engine = ASIDAv5()
+
+prediction = engine.predict(
+
+    "Liverpool",
+    "Manchester City",
+
+    elo_home=1880,
+    elo_away=1900,
+
+    home_attack=1.45,
+    home_defense=1.05,
+
+    away_attack=1.50,
+    away_defense=1.10,
+
+    odds_home=2.60,
+    odds_draw=3.60,
+    odds_away=2.55
+)
+
+print(prediction)
